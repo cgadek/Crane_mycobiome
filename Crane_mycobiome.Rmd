@@ -1,0 +1,580 @@
+---
+title: "Crane Mycobiomes"
+author: "Chauncey Gadek"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  rmdformats::readthedown:
+    highlight: tango
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=F}
+pacman::p_load(
+tidyverse,
+dplyr,
+vegan,
+ggplot2,
+viridis,
+cowplot,
+randomcoloR,
+plotrix 
+  
+)
+
+
+
+df <- read.csv("data/morphotype_seq.csv", stringsAsFactors = T)
+
+# make column for higher order ID
+df$higher_ID <- NA
+df$Euro <- NA
+for(i in 1:nrow(df)){
+  df$higher_ID[i] <- sub(" .*", "", df$Tentative.ID[i])
+  if(df$higher_ID[i] %in% c("Aspergillus", "Penicillium")){
+    df$Euro[i] <- "Euro"
+  }else{
+    df$Euro[i] <- "Not"
+  }
+}
+pathogenic <- c("Apergillus", "Alternaria", "Aureobasidium", "Cladosporium","Chaetomium", "Lichtheimia", "Mucor", "Papiliotrema", "Penicillium", "Rhizopus", "Rhodotorula", "Uncultured")
+df<-df%>% mutate(path=ifelse(higher_ID %in% pathogenic, "p","np"))
+df$higher_ID <- as.factor(df$higher_ID)
+df$Euro <- as.factor(df$Euro)
+df$path <- as.factor(df$path)
+
+proportions <- df %>%
+  group_by(subspecies, Tentative.ID)%>% 
+  summarize(n = length(Tentative.ID)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) 
+
+n_lessers <- df[df$subspecies=="Antigone canadensis canadensis",]
+n_lessers <- length(unique(n_lessers$MSB_ID))
+
+n_greaters <- df[df$subspecies=="Antigone canadensis tabida",]
+n_greaters <- length(unique(n_greaters$MSB_ID))
+
+```
+
+# Summaries by subspecies
+## number of tentative ID taxa per subspecies
+```{r, echo=F}
+df %>%
+  group_by(subspecies, Tentative_ID_short)%>% 
+  summarise(no_rows = length(unique(subspecies)))%>%
+  group_by(subspecies)%>% 
+  summarise(no_rows = length(subspecies))%>%
+  ggplot(., aes(subspecies, no_rows))+
+  geom_col()+
+  ggtitle("OTUs per subspecies")+
+  scale_fill_manual(values="grey99")+
+  theme_classic()+
+  scale_x_discrete(labels=c("lesser", "greater"))+
+  labs(x="subspecies", y="number unique OTUs")+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.position = "none",
+        axis.text=element_text(size=14),
+        axis.title=element_text(size=14,face="bold"))
+
+
+```
+
+
+## number of tentative ID taxa per subspecies corrected for sample sizes
+```{r, echo=F}
+
+t<-df %>%
+  group_by(subspecies, Tentative.ID)%>% 
+  summarise(no_rows = length(unique(subspecies)))%>%
+  group_by(subspecies)%>% 
+  summarise(no_rows = length(subspecies))
+
+v<- t$no_rows[1]/n_lessers
+c <- t$no_rows[2]/n_greaters
+
+t$corr <-NA
+t$corr[1] <-v
+t$corr[2] <-c 
+t%>%
+  ggplot(., aes(subspecies, corr))+
+  geom_col()+
+  ggtitle("OTUs per subspecies")+
+  scale_fill_manual(values="grey62")+
+  theme_classic()+
+  scale_x_discrete(labels=c("lesser", "greater"))+
+  labs(x="subspecies", y="unique OTUs/indivudal")+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.position = "none",
+        axis.text=element_text(size=14),
+        axis.title=element_text(size=14,face="bold"))
+
+
+```
+
+
+```{r, echo=F}
+df %>%
+  group_by(subspecies, MSB_ID)%>% 
+  summarize(n = length(unique(Tentative.ID)))%>%
+  summarise(mean= mean(n),
+            se = std.error(n))
+```
+Essentially the same number of isolated fungal taxa from each subspecies. Suggesting that lessers have higher diversity given they have nearly 1/5 the number of individuals as greaters.
+
+
+```{r, echo=F}
+df %>%
+  group_by(subspecies, MSB_ID)%>% 
+  summarize(n = length(unique(Tentative.ID)))%>%
+   summarise(mean= mean(n),
+            se = std.error(n))%>%
+ggplot(., aes(subspecies, n, fill=subspecies))+
+  geom_col()
+```
+
+```{r, echo=F}
+df %>%
+  group_by(subspecies, MSB_ID)%>% 
+  summarize(n = length(unique(higher_ID)))%>%
+  summarise(mean= mean(n),
+            se = std.error(n))
+```
+Essentially the same number of isolated fungal taxa from each subspecies at higher taxonomic level.
+
+
+## number of higher ID taxa per subspecies
+```{r, echo=F}
+df %>%
+  group_by(subspecies)%>% 
+  summarize(n = length(unique(df$Tentative_ID_short)))
+```
+
+
+## number of higher ID taxa per subspecies
+```{r, echo=F}
+df %>%
+  group_by(subspecies)%>% 
+  summarize(n = length(unique(higher_ID)))
+```
+
+# Plot morphotype proportions
+## Specific ID
+```{r, echo=F}
+#set up color palettes
+n <- length(levels(df$Tentative.ID))
+palette <- distinctColorPalette(n)
+
+df %>%
+  group_by(subspecies, Tentative.ID)%>% 
+  summarize(n = length(Tentative.ID)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) %>%
+ggplot(., aes(fill = Tentative.ID,
+                      y = proportion, x = subspecies))+
+  geom_bar(position = "fill", stat = "identity")+
+  ggtitle("Tentative Culture ID")+
+  scale_fill_manual(values=palette)+
+  theme_classic(base_size = 12)+
+  scale_x_discrete(labels=c("lesser", "greater"))+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title = element_text(size = 3), 
+               legend.text = element_text(size = 3))
+
+```
+
+# Specific ID 
+but cleaned because pf weird labeling issues
+```{r, echo=F}
+#set up color palettes
+n <- length(levels(df$Tentative_ID_short))
+palette <- distinctColorPalette(n)
+
+df %>%
+  group_by(subspecies, Tentative_ID_short)%>% 
+  summarize(n = length(Tentative_ID_short)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) %>%
+ggplot(., aes(fill = Tentative_ID_short,
+                      y = proportion, x = subspecies))+
+  geom_bar(position = "fill", stat = "identity")+
+  ggtitle("Tentative Culture ID")+
+  scale_fill_manual(values=palette)+
+  theme_classic(base_size = 12)+
+  scale_x_discrete(labels=c("lesser", "greater"))+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title = element_text(size = 3), 
+               legend.text = element_text(size = 3))
+
+```
+## Higher ID
+```{r, echo=F}
+n <- length(levels(df$higher_ID))
+palette <- distinctColorPalette(n)
+
+df %>%
+  group_by(subspecies, higher_ID)%>% 
+  summarize(n = length(higher_ID)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) %>%
+ggplot(., aes(fill = higher_ID,
+                      y = proportion, x = subspecies))+
+geom_bar(position = "fill", stat = "identity")+
+  ggtitle("Tentative Culture ID")+
+  scale_fill_viridis_d(option="turbo")+
+  #scale_fill_manual(values=palette)+
+  theme_classic(base_size = 12)+
+  scale_x_discrete(labels=c("lesser", "greater"))+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title = element_text(size = 3), 
+               legend.text = element_text(size = 3))
+
+```
+
+
+## family ID
+```{r, echo=F}
+n <- length(levels(df$family))
+palette <- distinctColorPalette(n)
+
+df %>%
+  group_by(subspecies, family)%>% 
+  summarize(n = length(family)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) %>%
+ggplot(., aes(fill = family,
+                      y = proportion, x = subspecies))+
+geom_bar(position = "fill", stat = "identity")+
+  ggtitle("Family")+
+  scale_fill_viridis_d(option="turbo")+
+  #scale_fill_manual(values=palette)+
+  theme_classic(base_size = 12)+
+  scale_x_discrete(labels=c("lesser", "greater"))+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title=element_blank(), 
+               legend.text = element_text(size = 3))+
+  guides(fill = guide_legend(ncol = 2, byrow = T))
+
+```
+
+
+## order ID
+```{r, echo=F}
+n <- length(levels(df$order))
+palette <- distinctColorPalette(n)
+
+p<-df %>%
+  group_by(subspecies, order)%>% 
+  summarize(n = length(order)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) %>%
+  arrange(desc(proportion), group_by=subspecies)%>%
+ggplot(., aes(fill = fct_reorder(order,proportion),
+                      y = proportion, x = subspecies))+
+geom_bar(position = "fill", stat = "identity", color="black")+
+  ggtitle("Order")+
+scale_fill_manual(values=c("grey44", "sienna3", "goldenrod3", "bisque3", "grey90", "azure3", "thistle3", "lemonchiffon3", "steelblue", "cornsilk2", "peachpuff2", "lightblue3", "navajowhite3", "mistyrose2", "plum4"))+
+  scale_x_discrete(labels=c("lesser", "greater"))+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title=element_blank(), 
+               legend.text = element_text(size = 3))+
+  guides(fill = guide_legend(ncol = 2, byrow = T))+
+  theme_cowplot()
+p
+
+
+ggsave(p, file="figures/Proportion_orders.pdf", width=14.6, height=7.2)
+```
+
+## Just Apsergillus OTUs
+```{r, echo=F}
+
+
+p<-df %>%
+  filter(higher_ID=="Aspergillus")%>%
+  group_by(subspecies, Tentative_ID_short)%>% 
+  summarize(n = length(Tentative_ID_short)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) %>%
+ggplot(., aes(fill = fct_reorder(Tentative_ID_short,proportion),
+                      y = proportion, x = subspecies))+
+geom_bar(position = "fill", stat = "identity", color="black")+
+  ggtitle("Aspergillus OTU")+
+scale_fill_manual(values=c("grey44", "sienna3", "goldenrod3", "bisque3", "grey90", "azure3", "thistle3", "lemonchiffon3"))+
+  scale_x_discrete(labels=c("lesser", "greater"))+
+  labs(x="", y="proportion unique OTUs")+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title=element_blank(), 
+        legend.text = element_text(size = 4))+
+  theme_cowplot()
+p
+
+ggsave(p, file="figures/Proportion_Aspergillus.pdf", width=7.7, height=3.6)
+```
+
+## Just Penicillium OTUs
+```{r, echo=F}
+
+p<-df %>%
+  filter(higher_ID=="Penicillium")%>%
+  group_by(subspecies, Tentative_ID_short)%>% 
+  summarize(n = length(Tentative_ID_short)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) %>%
+ggplot(., aes(fill = fct_reorder(Tentative_ID_short,proportion),
+                      y = proportion, x = subspecies))+
+geom_bar(position = "fill", stat = "identity", color="black")+
+  ggtitle("Penicillium OTU")+
+ scale_fill_manual(values=c("grey44", "sienna3", "goldenrod3", "bisque3", "grey90", "azure3"))+
+  scale_x_discrete(labels=c("lesser", "greater"))+
+  labs(x="", y="proportion unique OTUs")+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title=element_blank(), 
+               legend.text = element_text(size = 3))+
+  theme_cowplot()
+p
+
+ggsave(p, file="figures/Proportion_Penicillium.pdf", width=7.7, height=3.6)
+```
+## For  Penicillium and Aspergillus combined
+ 
+```{R}
+p<- df %>%
+ # filter(higher_ID==c("Penicillium", "Aspergillus"))%>%
+  group_by(subspecies, Euro)%>% 
+  summarize(n = length(Euro)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) %>%
+ggplot(., aes(fill = Euro,
+                      y = proportion, x = subspecies))+
+geom_bar(position = "fill", stat = "identity", color="black")+
+  ggtitle("Penicillium OTU")+
+  scale_fill_manual(values=c( "sienna3", "grey44", "goldenrod3", "bisque3", "grey90", "azure2"))+
+  scale_x_discrete(labels=c("lesser", "greater"))+
+  labs(x="", y="proportion Eurotiales OTUs")+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title=element_blank(), 
+               legend.text = element_text(size = 3))+
+  theme_cowplot()
+
+p
+
+
+ggsave(p, file="figures/Proportion_Eurotiales.pdf", width=5.6, height=3.6)
+```
+
+Chi-squared test for Eurotailes between subpecies
+```{R}
+chisq.test(df$subspecies, df$Euro, simulate.p.value = T)
+
+```
+Next I am doing a literature search by OTU higher order taxon name to determine if I can include them in opportunistic infection category or not...
+
+Oppurtunistic infection in birds:
+1. Apergillus
+2. Alternaria
+3. Aureobasidium bird feathers
+4. Cladosporium
+5. Chaetomium bird feathers showed higher depredation on individuals with feather growth of this fungi https://onlinelibrary.wiley.com/doi/full/10.1002/ece3.3582
+6. 	Lichtheimia 
+7. Mucor
+8. Papiliotrema 
+9. Penicillium
+10. Rhizopus
+11. Rhodotorula
+12. Uncultured Dothidiomycetes
+
+```{r}
+
+pathogenic <- c("Apergillus", "Alternaria", "Aureobasidium", "Cladosporium","Chaetomium", "Lichtheimia", "Mucor", "Papiliotrema", "Penicillium", "Rhizopus", "Rhodotorula", "Uncultured")
+
+  
+p<-df%>%
+  group_by(subspecies, path)%>% 
+  mutate(path=ifelse(higher_ID %in% pathogenic, "p","np"))%>%
+  summarize(n = length(path)) %>%
+  ungroup %>% 
+  group_by(subspecies) %>% 
+  mutate(proportion = n / sum(n)) %>%
+  ggplot(., aes(fill = path,
+                      y = n, x = subspecies))+
+geom_bar(position = "fill", stat = "identity", color="black")+
+  ggtitle("Opportunistic Pathogen OTUs")+
+  scale_fill_manual(values=c("bisque2", "sienna3"), labels=c( "not \n pathogenic", "opportunistic \n pathogen"))+
+  scale_x_discrete(labels=c("lesser", "greater"))+
+  labs(x="", y="proportion pathogen OTUs")+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title = element_text(size = 0), 
+               legend.text = element_text(size = 8))+
+  theme_cowplot()
+p
+ggsave(p, file="figures/Proportion_oppurtunistic_pathogen.pdf", width=5.6, height=3.6)
+```
+
+
+
+```{r}
+chisq.test(df$subspecies, df$Euro, simulate.p.value = T)
+```
+
+## MDS
+```{r}
+
+library(magrittr)
+library(dplyr)
+library(ggpubr)
+row <- df %>%
+  group_by(subspecies, MSB_ID, Tentative.ID) %>%
+  summarise(n = n()) %>%
+  pivot_wider(names_from = Tentative.ID, values_from = n) 
+
+mds <- df %>%
+   unite(subid, c("subspecies", "MSB_ID"))%>%
+  group_by(subid,higher_ID) %>%
+  summarise(n = n()) %>%
+  pivot_wider(names_from = higher_ID, values_from = n) %>%
+  replace(is.na(.), 0)%>%
+  column_to_rownames(., var="subid")%>%
+  as.matrix()
+#   dist() %>%          
+#   cmdscale() %>%
+#   as_tibble()
+# colnames(mds) <- c("Dim.1", "Dim.2")
+
+
+c.myco.NMDS=metaMDS(mds, # Our community-by-species matrix
+                     k=2) # The number of reduced dimensions
+
+
+
+
+mds$subpecies <- row$subspecies
+# Plot MDS
+
+ggplot(mds, aes(Dim.1, Dim.2, fill=subpecies))+
+  geom_point(shape=21)
+
+
+
+```
+## NMDS
+
+```{r}
+mds <- df %>%
+   unite(subid, c("subspecies", "MSB_ID"))%>%
+  group_by(subid,order) %>%
+  summarise(n = n()) %>%
+  pivot_wider(names_from = order, values_from = n) %>%
+  replace(is.na(.), 0)%>%
+  column_to_rownames(., var="subid")%>%
+  as.matrix()
+
+
+c.myco.NMDS=metaMDS(mds, # Our community-by-species matrix
+                     k=2) # The number of reduced dimensions
+
+
+
+stressplot(c.myco.NMDS)
+```
+
+# By age
+## lesser subspecies
+### Higher ID
+```{r, echo=F}
+n <- length(levels(df$order))
+palette <- distinctColorPalette(n)
+
+df %>%
+  filter(subspecies %in% "Antigone canadensis canadensis")%>%
+  mutate(age2=ifelse(age %in% c("a"), "a","i") )%>%
+  group_by(age2, order,)%>% 
+  summarize(n = length(order)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) %>%
+ggplot(., aes(fill = order,
+                      y = proportion, x = age2))+
+geom_bar(position = "fill", stat = "identity")+
+  ggtitle("Order Lessers by Age")+
+  scale_fill_viridis_d(option="plasma")+
+  #scale_fill_manual(values=palette)+
+  theme_classic(base_size = 12)+
+  scale_x_discrete(labels=c("adult", "immature"))+
+  labs(x="age", y = "proportion OTU")+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title = element_text(size = 0), 
+               legend.text = element_text(size = 3))
+
+```
+
+### Just Apsergillus OTUs
+```{r, echo=F}
+n <- length(levels(df$higher_ID))
+palette <- distinctColorPalette(n)
+
+df %>%
+  filter(higher_ID=="Aspergillus",
+         #sex %in% c("m", "f"),
+         subspecies %in% "Antigone canadensis canadensis")%>%
+  mutate(age2=ifelse(age %in% c("a"), "a","i") )%>%
+  group_by(age2, Tentative_ID_short)%>% 
+  summarize(n = length(Tentative_ID_short)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) %>%
+ggplot(., aes(fill = Tentative_ID_short,
+                      y = proportion, x = age2))+
+geom_bar(position = "fill", stat = "identity")+
+  ggtitle("Aspergillus OTU")+
+  #scale_fill_manual(values=palette)+
+  scale_fill_viridis_d(option="plasma")+
+  theme_classic(base_size = 12)+
+  scale_x_discrete(labels=c("adult", "immature"))+
+  labs(x="age", y="proportion unique OTUs")+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title = element_text(size = 0), 
+               legend.text = element_text(size = 4))
+
+```
+Interesting no immature lesser birds have any Aspergillus OTUs.
+
+### Putative pathogens
+```{r}
+pathogenic <- c("Apergillus", "Alternaria", "Aureobasidium", "Cladosporium","Chaetomium", "Lichtheimia", "Mucor", "Papiliotrema", "Penicillium", "Rhizopus", "Rhodotorula", "Uncultured")
+
+df%>%
+  filter(subspecies %in% "Antigone canadensis canadensis")%>%
+  mutate(path=ifelse(higher_ID %in% pathogenic, "p","np"),
+         age2=ifelse(age %in% c("a"), "a","i"))%>%
+  group_by(age2, path)%>% 
+  summarize(n = length(path)) %>%
+  #ungroup %>% group_by(state, gender) %>% 
+  mutate(proportion = n / sum(n)) %>%
+  ggplot(., aes(fill = path,
+                      y = n, x = age2))+
+geom_bar(position = "fill", stat = "identity")+
+  ggtitle("Opportunistic Pathogen OTUs in Lessers" )+
+  scale_fill_manual(values=c("goldenrod3", "dodgerblue3"), labels=c( "not \n pathenogenic", "oppurtunistic \n pathogen"))+
+  theme_classic(base_size = 12)+
+  scale_x_discrete(labels=c("adult", "immature"))+
+  labs(x="age", y="proportion unique OTUs")+
+  guides(shape = guide_legend(override.aes = list(size = 0.5)))+
+  guides(fill= guide_legend(override.aes = list(size = 0.5)))+
+  theme(legend.title = element_text(size = 0), 
+               legend.text = element_text(size = 5))
+
+chisq.test(df$subspecies, df$path, simulate.p.value = T)
+```
